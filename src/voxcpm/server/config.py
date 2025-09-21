@@ -5,19 +5,16 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Optional
 
 
 def _default_voices_dir() -> Path:
-    """Return the directory that should be used for bundled/custom voices."""
+    """Return the bundled voices directory shipped with the package."""
 
-    package_root = Path(__file__).resolve().parents[3]
     candidates = [
-        package_root / "voices",
-        package_root / "assets" / "voices",
-        Path.cwd() / "voices",
-        Path.cwd() / "assets" / "voices",
+        Path(__file__).resolve().parents[3] / "assets" / "voices",
         Path(__file__).resolve().parent / "voices",
+        Path.cwd() / "assets" / "voices",
     ]
     for path in candidates:
         if path.exists():
@@ -45,18 +42,6 @@ def _coerce_float(value: Optional[object], default: float) -> float:
     return float(value)
 
 
-def _coerce_str_list(value: Optional[object], default: Iterable[str]) -> List[str]:
-    if value is None:
-        return list(default)
-    if isinstance(value, str):
-        if not value.strip():
-            return []
-        return [item.strip() for item in value.split(",") if item.strip()]
-    if isinstance(value, Iterable):
-        return [str(item) for item in value]
-    return [str(value)]
-
-
 def _coerce_path(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
@@ -81,11 +66,6 @@ class ServerSettings:
 
     stream_chunk_size: int
     allow_streaming: bool
-
-    cors_allow_origins: List[str]
-    cors_allow_methods: List[str]
-    cors_allow_headers: List[str]
-    cors_allow_credentials: bool
 
     inference_cfg_value: float
     inference_timesteps: int
@@ -127,19 +107,6 @@ class ServerSettings:
             overrides.get("stream_chunk_size") or env.get("VOXCPM_STREAM_CHUNK_SIZE"), 32768
         )
         self.allow_streaming = _coerce_bool(overrides.get("allow_streaming") or env.get("VOXCPM_ALLOW_STREAMING"), True)
-
-        self.cors_allow_origins = _coerce_str_list(
-            overrides.get("cors_allow_origins") or env.get("VOXCPM_CORS_ALLOW_ORIGINS"), ["*"]
-        )
-        self.cors_allow_methods = _coerce_str_list(
-            overrides.get("cors_allow_methods") or env.get("VOXCPM_CORS_ALLOW_METHODS"), ["GET", "POST", "OPTIONS"]
-        )
-        self.cors_allow_headers = _coerce_str_list(
-            overrides.get("cors_allow_headers") or env.get("VOXCPM_CORS_ALLOW_HEADERS"), ["*"]
-        )
-        self.cors_allow_credentials = _coerce_bool(
-            overrides.get("cors_allow_credentials") or env.get("VOXCPM_CORS_ALLOW_CREDENTIALS"), False
-        )
 
         self.inference_cfg_value = _coerce_float(overrides.get("inference_cfg_value") or env.get("VOXCPM_CFG_VALUE"), 2.0)
         self.inference_timesteps = _coerce_int(
