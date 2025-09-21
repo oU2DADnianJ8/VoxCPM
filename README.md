@@ -159,6 +159,7 @@ The server exposes endpoints that mirror the OpenAI Audio API:
 - `GET /v1/models` – list the available VoxCPM deployments.
 - `GET /v1/voices` – discover bundled voice presets.
 - `POST /v1/audio/speech` – synthesize speech (supports streaming and non-streaming responses).
+- `OPTIONS /v1/audio/speech` – CORS-friendly preflight endpoint for browser clients.
 
 Example request that saves an MP3 to disk:
 
@@ -190,16 +191,35 @@ curl -N http://localhost:8000/v1/audio/speech \
 
 Supported `response_format` values: `mp3`, `wav`, `flac`, `aac`, `opus`, and raw `pcm`.
 
-Voices are defined with lightweight JSON manifests (see `assets/voices`). Add new speakers by dropping files that reference local prompt audio and transcripts:
+The server automatically scans the configured voices directory (defaults to `./voices`, falling back to `./assets/voices`) for
+`.wav` files. The stem of each file becomes the selectable voice name, so dropping `voices/alice.wav` makes `alice` available via
+`voice: "alice"`. Provide a matching transcript by placing a `voices/alice.txt` file next to the audio or by including an inline
+`prompt.text` payload when calling the API.
+
+```
+voices/
+├── alice.wav
+├── alice.txt    # optional transcript used for prompt_text
+└── bob.wav      # supply prompt.text in the request if no matching .txt exists
+```
+
+Voice metadata can still be customised via optional JSON files. For example, `voices/alice.json` can supply descriptions or map a
+shared transcript file:
 
 ```json
 {
-  "name": "my_voice",
-  "description": "Team member voice preset",
-  "prompt_audio": "../../my_prompts/alice.wav",
-  "prompt_text": "This is Alice. Welcome to our service!"
+  "name": "alice",
+  "description": "Alice from our IVR team",
+  "transcript_file": "alice.txt",
+  "tags": ["ivr", "english"]
 }
 ```
+
+Use the `VOXCPM_VOICES_DIR` environment variable (or the `voices_dir` setting when embedding) to point the server to a different
+directory. Add per-request overrides by supplying `prompt.audio`/`prompt.format`/`prompt.text` in the request body.
+
+Cross-origin requests are allowed by default. Adjust the behaviour with `VOXCPM_CORS_ALLOW_ORIGINS`,
+`VOXCPM_CORS_ALLOW_METHODS`, `VOXCPM_CORS_ALLOW_HEADERS`, and `VOXCPM_CORS_ALLOW_CREDENTIALS` to match your deployment needs.
 
 ### Docker & GPU deployment
 

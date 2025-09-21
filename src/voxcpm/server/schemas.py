@@ -33,7 +33,7 @@ class PromptOverride(BaseModel):
 class AudioSpeechRequest(BaseModel):
     """Schema for the OpenAI-compatible ``/v1/audio/speech`` endpoint."""
 
-    model: str
+    model: Optional[str] = Field(None, description="Model identifier")
     voice: Optional[str] = Field(None, description="Voice preset identifier")
     input: str = Field(..., description="Text to synthesize")
     response_format: str = Field("mp3", alias="response_format")
