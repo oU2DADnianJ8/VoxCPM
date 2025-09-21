@@ -12,6 +12,8 @@ def _default_voices_dir() -> Path:
     """Return the bundled voices directory shipped with the package."""
 
     candidates = [
+        Path(__file__).resolve().parents[3] / "voices",
+        Path.cwd() / "voices",
         Path(__file__).resolve().parents[3] / "assets" / "voices",
         Path(__file__).resolve().parent / "voices",
         Path.cwd() / "assets" / "voices",
