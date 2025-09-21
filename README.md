@@ -137,7 +137,82 @@ python -m voxcpm.cli --help
 
 You can start the UI interface by running `python app.py`, which allows you to perform Voice Cloning and Voice Creation.
 
+## 🛰️ OpenAI-Compatible API Server
 
+VoxCPM now ships with an OpenAI-compatible Text-to-Speech API server featuring GPU acceleration, streaming, configurable voice presets, and multi-format audio output.
+
+### Run the API locally
+
+```bash
+pip install -e .
+voxcpm-api --host 0.0.0.0 --port 8000
+```
+
+The server exposes endpoints that mirror the OpenAI Audio API:
+
+- `GET /v1/models` – list the available VoxCPM deployments.
+- `GET /v1/voices` – discover bundled voice presets.
+- `POST /v1/audio/speech` – synthesize speech (supports streaming and non-streaming responses).
+
+Example request that saves an MP3 to disk:
+
+```bash
+curl -s http://localhost:8000/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+        "model": "voxcpm-0.5b",
+        "voice": "sample",
+        "response_format": "mp3",
+        "speed": 1.0,
+        "input": "VoxCPM now speaks through an OpenAI-compatible API!"
+      }' --output speech.mp3
+```
+
+To receive streaming audio chunks encoded as Server-Sent Events, enable the `stream` flag:
+
+```bash
+curl -N http://localhost:8000/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -d '{
+        "model": "voxcpm-0.5b",
+        "voice": "default",
+        "response_format": "opus",
+        "stream": true,
+        "input": "Streaming lets VoxCPM deliver words as soon as they are ready."
+      }'
+```
+
+Supported `response_format` values: `mp3`, `wav`, `flac`, `aac`, `opus`, and raw `pcm`.
+
+Voices are defined with lightweight JSON manifests (see `assets/voices`). Add new speakers by dropping files that reference local prompt audio and transcripts:
+
+```json
+{
+  "name": "my_voice",
+  "description": "Team member voice preset",
+  "prompt_audio": "../../my_prompts/alice.wav",
+  "prompt_text": "This is Alice. Welcome to our service!"
+}
+```
+
+### Docker & GPU deployment
+
+Build the CUDA-enabled container image and run it with NVIDIA GPUs:
+
+```bash
+docker build -t voxcpm-openai-api .
+docker run --rm --gpus all -p 8000:8000 \
+  -v $(pwd)/models:/models \
+  voxcpm-openai-api
+```
+
+A ready-to-use `docker-compose.yml` is included:
+
+```bash
+docker compose up --build
+```
+
+The container honours all environment variables supported by `ServerSettings` (e.g. `VOXCPM_MODEL_ID`, `VOXCPM_MODEL_PATH`, `VOXCPM_DEFAULT_VOICE`, `VOXCPM_STREAM_CHUNK_SIZE`).
 
 ## 👩‍🍳 A Voice Chef's Guide
 Welcome to the VoxCPM kitchen! Follow this recipe to cook up perfect generated speech. Let’s begin.
