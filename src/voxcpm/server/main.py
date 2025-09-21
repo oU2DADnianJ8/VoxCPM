@@ -7,8 +7,19 @@ from typing import Any, Dict
 
 import uvicorn
 
-from .app import create_app
-from .config import ServerSettings
+if __package__ in {None, ""}:  # pragma: no cover - runtime convenience
+    import pathlib
+    import sys
+
+    package_root = pathlib.Path(__file__).resolve().parents[2]
+    if str(package_root) not in sys.path:
+        sys.path.insert(0, str(package_root))
+
+    from voxcpm.server.app import create_app  # type: ignore[import-not-found]
+    from voxcpm.server.config import ServerSettings  # type: ignore[import-not-found]
+else:  # pragma: no cover - exercised via package imports
+    from .app import create_app
+    from .config import ServerSettings
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
