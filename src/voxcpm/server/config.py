@@ -65,6 +65,7 @@ class ServerSettings:
 
     voices_dir: Path
     default_voice: str
+    output_dir: Path
 
     stream_chunk_size: int
     allow_streaming: bool
@@ -109,6 +110,12 @@ class ServerSettings:
             self.voices_dir = _default_voices_dir()
         self.default_voice = str(overrides.get("default_voice") or env.get("VOXCPM_DEFAULT_VOICE") or "default")
 
+        output_dir_value = overrides.get("output_dir") or env.get("VOXCPM_OUTPUT_DIR")
+        if output_dir_value:
+            self.output_dir = Path(str(output_dir_value)).expanduser().resolve()
+        else:
+            self.output_dir = (Path.cwd() / "output").resolve()
+
         self.stream_chunk_size = _coerce_int(
             overrides.get("stream_chunk_size") or env.get("VOXCPM_STREAM_CHUNK_SIZE"), 32768
         )
@@ -116,7 +123,7 @@ class ServerSettings:
 
         self.inference_cfg_value = _coerce_float(overrides.get("inference_cfg_value") or env.get("VOXCPM_CFG_VALUE"), 2.0)
         self.inference_timesteps = _coerce_int(
-            overrides.get("inference_timesteps") or env.get("VOXCPM_INFERENCE_TIMESTEPS"), 10
+            overrides.get("inference_timesteps") or env.get("VOXCPM_INFERENCE_TIMESTEPS"), 16
         )
         self.max_length = _coerce_int(overrides.get("max_length") or env.get("VOXCPM_MAX_LENGTH"), 4096)
         self.normalize_text = _coerce_bool(overrides.get("normalize_text") or env.get("VOXCPM_NORMALIZE_TEXT"), True)
