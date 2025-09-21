@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -61,12 +62,40 @@ class VoiceLibrary:
     def __init__(self, directory: Path):
         self.directory = directory
         self._voices: Dict[str, VoiceProfile] = {}
+        self._aliases: Dict[str, str] = {}
         self.reload()
+
+    @staticmethod
+    def _normalize_key(name: str) -> str:
+        """Return a canonical representation used for primary lookups."""
+
+        return " ".join(name.strip().split()).lower()
+
+    @staticmethod
+    def _alias_key(name: str) -> Optional[str]:
+        """Return a relaxed alias that ignores whitespace and separators."""
+
+        alias = re.sub(r"[\s_\-]+", "", name.strip().lower())
+        return alias or None
+
+    def _register_profile(
+        self, voices: Dict[str, VoiceProfile], aliases: Dict[str, str], profile: VoiceProfile
+    ) -> None:
+        """Store *profile* in ``voices`` and populate canonical aliases."""
+
+        key = self._normalize_key(profile.name)
+        voices[key] = profile
+        # Canonical key should always resolve, but also populate relaxed aliases.
+        aliases.setdefault(key, key)
+        alias = self._alias_key(profile.name)
+        if alias:
+            aliases.setdefault(alias, key)
 
     def reload(self) -> None:
         """Reload voice definitions from disk."""
 
         voices: Dict[str, VoiceProfile] = {}
+        aliases: Dict[str, str] = {}
         metadata_by_stem: Dict[str, Dict[str, Any]] = {}
         manifests: List[Tuple[Path, VoiceConfig]] = []
 
@@ -75,9 +104,15 @@ class VoiceLibrary:
                 self.directory.mkdir(parents=True, exist_ok=True)
             except OSError as exc:  # pragma: no cover - filesystem safety
                 LOGGER.warning("Failed to create voices directory %s: %s", self.directory, exc)
-                self._voices = {
-                    "default": VoiceProfile(name="default", description="Unconditioned VoxCPM voice", source="builtin")
-                }
+                fallback: Dict[str, VoiceProfile] = {}
+                fallback_aliases: Dict[str, str] = {}
+                self._register_profile(
+                    fallback,
+                    fallback_aliases,
+                    VoiceProfile(name="default", description="Unconditioned VoxCPM voice", source="builtin"),
+                )
+                self._voices = fallback
+                self._aliases = fallback_aliases
                 return
 
         for json_file in sorted(self.directory.glob("*.json")):
@@ -96,7 +131,7 @@ class VoiceLibrary:
                     continue
                 manifests.append((json_file, config))
             else:
-                metadata_by_stem[json_file.stem.lower()] = data
+                metadata_by_stem[self._normalize_key(json_file.stem)] = data
 
         for json_file, config in manifests:
             prompt_audio_path: Optional[Path] = None
@@ -104,7 +139,7 @@ class VoiceLibrary:
                 prompt_audio_path = (json_file.parent / config.prompt_audio).resolve()
 
             profile = VoiceProfile(
-                name=config.name,
+                name=" ".join(config.name.strip().split()),
                 description=config.description,
                 prompt_audio=prompt_audio_path,
                 prompt_text=config.prompt_text,
@@ -112,10 +147,10 @@ class VoiceLibrary:
                 tags=config.tags or [],
                 source="manifest",
             )
-            voices[config.name.lower()] = profile
+            self._register_profile(voices, aliases, profile)
 
         for wav_file in sorted(self.directory.glob("*.wav")):
-            voice_key = wav_file.stem.lower()
+            voice_key = self._normalize_key(wav_file.stem)
             if voice_key in voices:
                 # Manifests take precedence when both exist.
                 continue
@@ -150,27 +185,45 @@ class VoiceLibrary:
                 tags=list(tags) if isinstance(tags, list) else [],
                 source="filesystem",
             )
-            voices[voice_key] = profile
+            self._register_profile(voices, aliases, profile)
 
         # Always ensure the default voice is available.
-        if "default" not in voices:
-            voices["default"] = VoiceProfile(
-                name="default",
-                description="Unconditioned VoxCPM voice",
-                source="builtin",
+        if self._normalize_key("default") not in voices:
+            self._register_profile(
+                voices,
+                aliases,
+                VoiceProfile(
+                    name="default",
+                    description="Unconditioned VoxCPM voice",
+                    source="builtin",
+                ),
             )
 
         self._voices = voices
+        self._aliases = aliases
 
     def get(self, name: Optional[str]) -> Optional[VoiceProfile]:
         """Return the voice profile associated with ``name``."""
 
         if name is None:
             return None
-        return self._voices.get(name.lower())
+        normalized = self._normalize_key(name)
+        if not normalized:
+            return None
+
+        voice = self._voices.get(normalized)
+        if voice is not None:
+            return voice
+
+        alias_key = self._alias_key(name)
+        if alias_key:
+            canonical = self._aliases.get(alias_key)
+            if canonical:
+                return self._voices.get(canonical)
+        return None
 
     def __contains__(self, name: str) -> bool:  # pragma: no cover - trivial
-        return name.lower() in self._voices
+        return self.get(name) is not None
 
     def list_profiles(self) -> Iterable[VoiceProfile]:  # pragma: no cover - trivial
         return sorted(self._voices.values(), key=lambda profile: profile.name.lower())
