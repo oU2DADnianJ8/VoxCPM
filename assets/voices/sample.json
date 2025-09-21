@@ -1,0 +1,7 @@
+{
+  "name": "sample",
+  "description": "Demonstration voice powered by the bundled example prompt audio.",
+  "prompt_audio": "../../examples/example.wav",
+  "prompt_text": "This recording showcases the VoxCPM voice cloning capabilities.",
+  "tags": ["demo", "cloned"]
+}
