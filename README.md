@@ -158,6 +158,7 @@ The server exposes endpoints that mirror the OpenAI Audio API:
 
 - `GET /v1/models` – list the available VoxCPM deployments.
 - `GET /v1/voices` – discover bundled voice presets.
+- `OPTIONS /v1/audio/speech` – inspect the endpoint capabilities (handy for CORS preflight requests).
 - `POST /v1/audio/speech` – synthesize speech (supports streaming and non-streaming responses).
 
 Example request that saves an MP3 to disk:
@@ -167,7 +168,7 @@ curl -s http://localhost:8000/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{
         "model": "voxcpm-0.5b",
-        "voice": "sample",
+        "voice": "default",
         "response_format": "mp3",
         "speed": 1.0,
         "input": "VoxCPM now speaks through an OpenAI-compatible API!"
@@ -190,16 +191,22 @@ curl -N http://localhost:8000/v1/audio/speech \
 
 Supported `response_format` values: `mp3`, `wav`, `flac`, `aac`, `opus`, and raw `pcm`.
 
-Voices are defined with lightweight JSON manifests (see `assets/voices`). Add new speakers by dropping files that reference local prompt audio and transcripts:
+Need to verify the endpoint from a browser or another service? Ask for the options payload:
 
-```json
-{
-  "name": "my_voice",
-  "description": "Team member voice preset",
-  "prompt_audio": "../../my_prompts/alice.wav",
-  "prompt_text": "This is Alice. Welcome to our service!"
-}
+```bash
+curl -i -X OPTIONS http://localhost:8000/v1/audio/speech
 ```
+
+#### Managing voices
+
+The server now auto-discovers custom voices from a `voices/` directory in the project root
+(or the working directory you use when launching the server):
+
+- Drop a `my_voice.wav` file into `voices/` and it instantly becomes available as the `"my_voice"` preset.
+- Provide a matching `my_voice.txt` file containing the transcript of the prompt audio to unlock the highest-quality cloning.
+- Optionally add `my_voice.json` with metadata such as `description`, `language`, or `tags`. These values enrich the `/v1/voices` response but are not required.
+
+Restart the server after adding, removing, or updating files. VoxCPM will fall back to the built-in `default` voice if no custom prompts are present.
 
 ### Docker & GPU deployment
 

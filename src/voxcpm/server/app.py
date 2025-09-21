@@ -12,6 +12,7 @@ from typing import Any, AsyncGenerator, Dict, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 if __package__ in {None, ""}:  # pragma: no cover - runtime convenience
     import pathlib
@@ -36,7 +37,9 @@ else:  # pragma: no cover - exercised via package imports
 LOGGER = logging.getLogger("voxcpm.server.app")
 
 
-def _error_payload(message: str, error_type: str = "invalid_request_error", code: Optional[str] = None) -> Dict[str, Any]:
+def _error_payload(
+    message: str, error_type: str = "invalid_request_error", code: Optional[str] = None
+) -> Dict[str, Any]:
     return {"error": {"message": message, "type": error_type, "code": code}}
 
 
@@ -60,8 +63,18 @@ def create_app(settings: Optional[ServerSettings] = None) -> FastAPI:
     app.state.tts_manager = tts_manager
     app.state.audio_encoder = audio_encoder
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+        expose_headers=["X-Request-ID", "X-Model", "X-Voice-Name"],
+    )
+
     @app.exception_handler(HTTPException)
-    async def _http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:  # noqa: D401 - FastAPI signature
+    async def _http_exception_handler(
+        request: Request, exc: HTTPException
+    ) -> JSONResponse:  # noqa: D401 - FastAPI signature
         detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail)
         return JSONResponse(status_code=exc.status_code, content=_error_payload(detail, code=str(exc.status_code)))
 
@@ -69,7 +82,20 @@ def create_app(settings: Optional[ServerSettings] = None) -> FastAPI:
     async def _validation_exception_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:  # noqa: D401 - FastAPI signature
-        return JSONResponse(status_code=422, content=_error_payload(str(exc), code="422"))
+        message = "Invalid request payload"
+        errors = exc.errors() if hasattr(exc, "errors") else []
+        for error in errors:
+            if error.get("type") == "json_invalid":
+                message = (
+                    "The request body is not valid JSON. Verify that the payload is JSON encoded and "
+                    "that the 'Content-Type: application/json' header is present."
+                )
+                break
+        else:
+            if errors:
+                message = errors[0].get("msg", message)
+
+        return JSONResponse(status_code=422, content=_error_payload(message, code="422"))
 
     @app.on_event("startup")
     async def _startup() -> None:  # pragma: no cover - requires runtime environment
@@ -113,6 +139,24 @@ def create_app(settings: Optional[ServerSettings] = None) -> FastAPI:
     async def list_voices() -> Dict[str, Any]:
         return voice_library.as_response()
 
+    @app.options("/v1/audio/speech", tags=["openai"])
+    async def audio_speech_options() -> JSONResponse:
+        allowed_methods = ["OPTIONS", "POST"]
+        payload = {
+            "object": "audio.speech.options",
+            "model": settings.openai_model_name,
+            "voices": [profile.name for profile in voice_library.list_profiles()],
+            "allow": allowed_methods,
+        }
+        headers = {
+            "Allow": ", ".join(allowed_methods),
+            "Access-Control-Allow-Methods": ", ".join(allowed_methods),
+            "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Max-Age": "86400",
+        }
+        return JSONResponse(status_code=200, content=payload, headers=headers)
+
     @app.post("/v1/audio/speech", tags=["openai"])
     async def audio_speech(payload: AudioSpeechRequest) -> Response:
         model_name = payload.model
@@ -123,6 +167,19 @@ def create_app(settings: Optional[ServerSettings] = None) -> FastAPI:
         voice = voice_library.get(voice_name)
         if voice is None:
             raise HTTPException(status_code=404, detail=f"Voice '{voice_name}' not found")
+
+        if voice.requires_prompt_text and (payload.prompt is None or payload.prompt.text is None):
+            transcript_hint = None
+            if voice.prompt_audio is not None:
+                transcript_hint = voice.prompt_audio.with_suffix(".txt").name
+            detail = (
+                f"Voice '{voice.name}' requires an accompanying transcript. "
+                "Create a text file with the same name as the voice"
+            )
+            if transcript_hint:
+                detail += f" (e.g. '{transcript_hint}')"
+            detail += " or supply 'prompt.text' in the request body."
+            raise HTTPException(status_code=400, detail=detail)
 
         try:
             generation = await tts_manager.generate(
