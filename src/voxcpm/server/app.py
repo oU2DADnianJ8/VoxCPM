@@ -7,12 +7,14 @@ import json
 import logging
 import time
 import uuid
+from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+import soundfile as sf
 
 if __package__ in {None, ""}:  # pragma: no cover - runtime convenience
     import pathlib
@@ -43,6 +45,25 @@ def _error_payload(
     message: str, error_type: str = "invalid_request_error", code: Optional[str] = None
 ) -> Dict[str, Any]:
     return {"error": {"message": message, "type": error_type, "code": code}}
+
+
+def _persist_waveform(
+    waveform: Any,
+    sample_rate: int,
+    output_dir: Path,
+    voice_name: str,
+    request_id: str,
+) -> Path:
+    """Write the synthesized waveform to ``output_dir`` as a WAV file."""
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    voice_component = "".join(c if c.isalnum() or c in {"-", "_"} else "_" for c in voice_name.strip())
+    if not voice_component:
+        voice_component = "voice"
+    filename = f"{int(time.time() * 1000)}_{request_id}_{voice_component}.wav"
+    output_path = output_dir / filename
+    sf.write(output_path, waveform, sample_rate, format="WAV", subtype="PCM_16")
+    return output_path
 
 
 def create_app(settings: Optional[ServerSettings] = None) -> FastAPI:
@@ -234,6 +255,18 @@ def create_app(settings: Optional[ServerSettings] = None) -> FastAPI:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
         request_id = f"resp_{uuid.uuid4().hex}"
+        try:
+            saved_path = _persist_waveform(
+                waveform,
+                generation.sample_rate,
+                settings.output_dir,
+                voice.name,
+                request_id,
+            )
+            LOGGER.info("Saved synthesized speech to %s", saved_path)
+        except Exception as exc:  # pragma: no cover - filesystem issues
+            LOGGER.warning("Failed to save synthesized audio output: %s", exc)
+
         headers = {
             "X-Request-ID": request_id,
             "X-Model": settings.openai_model_name,

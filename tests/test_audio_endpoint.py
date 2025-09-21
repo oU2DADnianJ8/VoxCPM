@@ -41,7 +41,7 @@ def test_voice_prompt_auto_transcription(tmp_path):
     voice_wav = tmp_path / "myvoice.wav"
     voice_wav.write_bytes(b"fake")
 
-    settings = ServerSettings(voices_dir=str(tmp_path))
+    settings = ServerSettings(voices_dir=str(tmp_path), output_dir=str(tmp_path / "generated"))
     DummyTranscriber.instances = []
 
     with patch("voxcpm.server.app.PromptTranscriber", DummyTranscriber), _patch_model_loading():
@@ -57,7 +57,9 @@ def test_voice_prompt_auto_transcription(tmp_path):
                 },
             )
 
-    assert response.status_code == 200
+            assert response.status_code == 200
+            saved_files = list(settings.output_dir.glob("*.wav"))
+            assert saved_files
     assert DummyTranscriber.instances
     assert DummyTranscriber.instances[0].calls
 
@@ -66,7 +68,9 @@ def test_voice_prompt_requires_text_when_asr_disabled(tmp_path):
     voice_wav = tmp_path / "voice.wav"
     voice_wav.write_bytes(b"fake")
 
-    settings = ServerSettings(voices_dir=str(tmp_path), enable_prompt_asr=False)
+    settings = ServerSettings(
+        voices_dir=str(tmp_path), enable_prompt_asr=False, output_dir=str(tmp_path / "generated")
+    )
     DummyTranscriber.instances = []
 
     with _patch_model_loading():
