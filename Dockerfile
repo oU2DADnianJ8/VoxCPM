@@ -33,4 +33,4 @@ ENV HF_HOME=/models \
 
 VOLUME ["/models"]
 
-CMD ["voxcpm-api", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python3", "-m", "voxcpm.server.app", "--host", "0.0.0.0", "--port", "8000"]

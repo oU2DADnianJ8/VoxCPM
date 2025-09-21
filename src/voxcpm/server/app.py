@@ -13,11 +13,25 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from .audio import AudioEncoder, apply_speed
-from .config import ServerSettings
-from .schemas import AudioSpeechRequest
-from .tts import VoxCPMTTSManager
-from .voices import VoiceLibrary
+if __package__ in {None, ""}:  # pragma: no cover - runtime convenience
+    import pathlib
+    import sys
+
+    package_root = pathlib.Path(__file__).resolve().parents[2]
+    if str(package_root) not in sys.path:
+        sys.path.insert(0, str(package_root))
+
+    from voxcpm.server.audio import AudioEncoder, apply_speed  # type: ignore[import-not-found]
+    from voxcpm.server.config import ServerSettings  # type: ignore[import-not-found]
+    from voxcpm.server.schemas import AudioSpeechRequest  # type: ignore[import-not-found]
+    from voxcpm.server.tts import VoxCPMTTSManager  # type: ignore[import-not-found]
+    from voxcpm.server.voices import VoiceLibrary  # type: ignore[import-not-found]
+else:  # pragma: no cover - exercised via package imports
+    from .audio import AudioEncoder, apply_speed
+    from .config import ServerSettings
+    from .schemas import AudioSpeechRequest
+    from .tts import VoxCPMTTSManager
+    from .voices import VoiceLibrary
 
 LOGGER = logging.getLogger("voxcpm.server.app")
 
@@ -201,4 +215,20 @@ def _encode_sse(event: str, data: Dict[str, Any]) -> bytes:
     return f"event: {event}\ndata: {message}\n\n".encode("utf-8")
 
 
-__all__ = ["create_app"]
+def main() -> None:  # pragma: no cover - CLI shim
+    """Entry-point for running the server directly via ``python app.py``."""
+
+    if __package__ in {None, ""}:  # pragma: no cover - runtime convenience
+        # ``voxcpm.server.main`` relies on the same path bootstrap performed above.
+        from voxcpm.server.main import run as _run  # type: ignore[import-not-found]
+    else:  # pragma: no cover - exercised via package imports
+        from .main import run as _run
+
+    _run()
+
+
+if __name__ == "__main__":  # pragma: no cover - runtime convenience
+    main()
+
+
+__all__ = ["create_app", "main"]

@@ -145,7 +145,13 @@ VoxCPM now ships with an OpenAI-compatible Text-to-Speech API server featuring G
 
 ```bash
 pip install -e .
-voxcpm-api --host 0.0.0.0 --port 8000
+python -m voxcpm.server.app --host 0.0.0.0 --port 8000
+```
+
+Running the module adds the project root to ``PYTHONPATH``, so you can also execute the server directly from the source tree:
+
+```bash
+python src/voxcpm/server/app.py --host 0.0.0.0 --port 8000
 ```
 
 The server exposes endpoints that mirror the OpenAI Audio API:
