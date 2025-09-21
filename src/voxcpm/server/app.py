@@ -12,6 +12,7 @@ from typing import Any, AsyncGenerator, Dict, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 if __package__ in {None, ""}:  # pragma: no cover - runtime convenience
     import pathlib
@@ -51,6 +52,14 @@ def create_app(settings: Optional[ServerSettings] = None) -> FastAPI:
         summary="Serve VoxCPM text-to-speech through OpenAI-compatible endpoints",
     )
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allow_origins,
+        allow_methods=settings.cors_allow_methods,
+        allow_headers=settings.cors_allow_headers,
+        allow_credentials=settings.cors_allow_credentials,
+    )
+
     voice_library = VoiceLibrary(settings.voices_dir)
     tts_manager = VoxCPMTTSManager(settings)
     audio_encoder = AudioEncoder(chunk_size=settings.stream_chunk_size)
@@ -69,7 +78,21 @@ def create_app(settings: Optional[ServerSettings] = None) -> FastAPI:
     async def _validation_exception_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:  # noqa: D401 - FastAPI signature
-        return JSONResponse(status_code=422, content=_error_payload(str(exc), code="422"))
+        errors = exc.errors()
+        if errors:
+            first = errors[0]
+            if first.get("type") == "json_invalid":
+                reason = first.get("ctx", {}).get("error", "unknown error")
+                message = f"Request body was not valid JSON: {reason}"
+                return JSONResponse(status_code=400, content=_error_payload(message, code="400"))
+
+            location = first.get("loc", [])
+            field = next((str(item) for item in location if item not in {"body"}), "request")
+            message = first.get("msg", "Invalid request parameter")
+            detail = f"{field}: {message}"
+            return JSONResponse(status_code=422, content=_error_payload(detail, code="422"))
+
+        return JSONResponse(status_code=422, content=_error_payload("Invalid request payload", code="422"))
 
     @app.on_event("startup")
     async def _startup() -> None:  # pragma: no cover - requires runtime environment
@@ -113,9 +136,13 @@ def create_app(settings: Optional[ServerSettings] = None) -> FastAPI:
     async def list_voices() -> Dict[str, Any]:
         return voice_library.as_response()
 
+    @app.options("/v1/audio/speech", include_in_schema=False)
+    async def audio_speech_options() -> Response:
+        return Response(status_code=204, headers={"Allow": "OPTIONS, POST"})
+
     @app.post("/v1/audio/speech", tags=["openai"])
     async def audio_speech(payload: AudioSpeechRequest) -> Response:
-        model_name = payload.model
+        model_name = payload.model or settings.openai_model_name
         if model_name not in {settings.openai_model_name, settings.model_id}:
             raise HTTPException(status_code=404, detail=f"Model '{model_name}' is not available")
 
