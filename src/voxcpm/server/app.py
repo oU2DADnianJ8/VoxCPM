@@ -163,7 +163,11 @@ def create_app(settings: Optional[ServerSettings] = None) -> FastAPI:
         if model_name not in {settings.openai_model_name, settings.model_id}:
             raise HTTPException(status_code=404, detail=f"Model '{model_name}' is not available")
 
-        voice_name = payload.voice or settings.default_voice
+        raw_voice_name = payload.voice or settings.default_voice
+        voice_name = raw_voice_name.strip()
+        if not voice_name:
+            voice_name = settings.default_voice
+
         voice = voice_library.get(voice_name)
         if voice is None:
             raise HTTPException(status_code=404, detail=f"Voice '{voice_name}' not found")
