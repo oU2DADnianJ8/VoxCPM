@@ -110,11 +110,7 @@ class VoxCPMTTSManager:
                 prompt_text = prompt_override.text
 
         if prompt_path and not prompt_text:
-            raise ValueError(
-                "Voice '{name}' requires a transcript. Provide a '{name}.txt' file next to the prompt audio "
-                "or include prompt.text in the request payload."
-                .format(name=voice.name)
-            )
+            raise ValueError("A prompt_text must be provided when prompt audio is supplied")
 
         cfg_value = cfg_scale if cfg_scale is not None else self.settings.inference_cfg_value
         inference_timesteps = inference_steps if inference_steps is not None else self.settings.inference_timesteps
