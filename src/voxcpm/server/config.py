@@ -78,6 +78,10 @@ class ServerSettings:
     retry_badcase_max_times: int
     retry_badcase_ratio_threshold: float
 
+    enable_prompt_asr: bool
+    prompt_asr_model_id: str
+    prompt_asr_device: Optional[str]
+
     log_level: str
 
     def __init__(self, **overrides: object) -> None:
@@ -124,6 +128,18 @@ class ServerSettings:
         self.retry_badcase_ratio_threshold = _coerce_float(
             overrides.get("retry_badcase_ratio_threshold") or env.get("VOXCPM_RETRY_BADCASE_RATIO"), 6.0
         )
+
+        enable_prompt_asr_value = overrides.get("enable_prompt_asr")
+        if enable_prompt_asr_value is None:
+            enable_prompt_asr_value = env.get("VOXCPM_ENABLE_PROMPT_ASR")
+        self.enable_prompt_asr = _coerce_bool(enable_prompt_asr_value, True)
+        self.prompt_asr_model_id = str(
+            overrides.get("prompt_asr_model_id")
+            or env.get("VOXCPM_PROMPT_ASR_MODEL_ID")
+            or "iic/SenseVoiceSmall"
+        )
+        prompt_asr_device_value = overrides.get("prompt_asr_device") or env.get("VOXCPM_PROMPT_ASR_DEVICE")
+        self.prompt_asr_device = str(prompt_asr_device_value) if prompt_asr_device_value else None
 
         self.log_level = str(overrides.get("log_level") or env.get("VOXCPM_LOG_LEVEL") or "info")
 

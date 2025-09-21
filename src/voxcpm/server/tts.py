@@ -16,6 +16,7 @@ from ..core import VoxCPM
 from .config import ServerSettings
 from .schemas import PromptOverride
 from .voices import VoiceProfile
+from .transcription import PromptTranscriber
 
 
 LOGGER = logging.getLogger("voxcpm.server.tts")
@@ -33,12 +34,13 @@ class TTSResult:
 class VoxCPMTTSManager:
     """High level orchestrator for model loading and inference."""
 
-    def __init__(self, settings: ServerSettings):
+    def __init__(self, settings: ServerSettings, transcriber: Optional[PromptTranscriber] = None):
         self.settings = settings
         self._model: Optional[VoxCPM] = None
         self._sample_rate: int = 16000
         self._init_lock = asyncio.Lock()
         self._inference_lock = asyncio.Lock()
+        self._transcriber = transcriber
 
     async def ensure_ready(self) -> None:
         """Ensure the underlying model is loaded."""
@@ -80,6 +82,10 @@ class VoxCPMTTSManager:
     def is_ready(self) -> bool:
         return self._model is not None
 
+    @property
+    def can_auto_transcribe(self) -> bool:
+        return self._transcriber is not None
+
     async def generate(
         self,
         text: str,
@@ -110,7 +116,17 @@ class VoxCPMTTSManager:
                 prompt_text = prompt_override.text
 
         if prompt_path and not prompt_text:
-            raise ValueError("A prompt_text must be provided when prompt audio is supplied")
+            if self._transcriber is None:
+                raise ValueError(
+                    "A prompt_text must be provided when prompt audio is supplied "
+                    "and automatic transcription is disabled"
+                )
+            try:
+                prompt_text = await self._transcriber.transcribe(prompt_path)
+            except Exception as exc:  # pragma: no cover - runtime safety
+                raise ValueError(
+                    "Failed to transcribe prompt audio automatically; supply 'prompt.text' explicitly"
+                ) from exc
 
         cfg_value = cfg_scale if cfg_scale is not None else self.settings.inference_cfg_value
         inference_timesteps = inference_steps if inference_steps is not None else self.settings.inference_timesteps

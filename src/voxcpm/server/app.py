@@ -26,12 +26,14 @@ if __package__ in {None, ""}:  # pragma: no cover - runtime convenience
     from voxcpm.server.config import ServerSettings  # type: ignore[import-not-found]
     from voxcpm.server.schemas import AudioSpeechRequest  # type: ignore[import-not-found]
     from voxcpm.server.tts import VoxCPMTTSManager  # type: ignore[import-not-found]
+    from voxcpm.server.transcription import PromptTranscriber  # type: ignore[import-not-found]
     from voxcpm.server.voices import VoiceLibrary  # type: ignore[import-not-found]
 else:  # pragma: no cover - exercised via package imports
     from .audio import AudioEncoder, apply_speed
     from .config import ServerSettings
     from .schemas import AudioSpeechRequest
     from .tts import VoxCPMTTSManager
+    from .transcription import PromptTranscriber
     from .voices import VoiceLibrary
 
 LOGGER = logging.getLogger("voxcpm.server.app")
@@ -55,13 +57,25 @@ def create_app(settings: Optional[ServerSettings] = None) -> FastAPI:
     )
 
     voice_library = VoiceLibrary(settings.voices_dir)
-    tts_manager = VoxCPMTTSManager(settings)
+    transcriber: Optional[PromptTranscriber] = None
+    if settings.enable_prompt_asr:
+        try:
+            transcriber = PromptTranscriber(
+                model_id=settings.prompt_asr_model_id,
+                device=settings.prompt_asr_device,
+            )
+        except Exception as exc:  # pragma: no cover - runtime guard
+            LOGGER.warning("Failed to initialise prompt ASR: %s", exc)
+            transcriber = None
+
+    tts_manager = VoxCPMTTSManager(settings, transcriber=transcriber)
     audio_encoder = AudioEncoder(chunk_size=settings.stream_chunk_size)
 
     app.state.settings = settings
     app.state.voice_library = voice_library
     app.state.tts_manager = tts_manager
     app.state.audio_encoder = audio_encoder
+    app.state.transcriber = transcriber
 
     app.add_middleware(
         CORSMiddleware,
@@ -169,17 +183,23 @@ def create_app(settings: Optional[ServerSettings] = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Voice '{voice_name}' not found")
 
         if voice.requires_prompt_text and (payload.prompt is None or payload.prompt.text is None):
-            transcript_hint = None
-            if voice.prompt_audio is not None:
-                transcript_hint = voice.prompt_audio.with_suffix(".txt").name
-            detail = (
-                f"Voice '{voice.name}' requires an accompanying transcript. "
-                "Create a text file with the same name as the voice"
-            )
-            if transcript_hint:
-                detail += f" (e.g. '{transcript_hint}')"
-            detail += " or supply 'prompt.text' in the request body."
-            raise HTTPException(status_code=400, detail=detail)
+            if tts_manager.can_auto_transcribe:
+                LOGGER.debug(
+                    "Voice '%s' is missing a transcript; will attempt automatic transcription",
+                    voice.name,
+                )
+            else:
+                transcript_hint = None
+                if voice.prompt_audio is not None:
+                    transcript_hint = voice.prompt_audio.with_suffix(".txt").name
+                detail = (
+                    f"Voice '{voice.name}' requires an accompanying transcript. "
+                    "Create a text file with the same name as the voice"
+                )
+                if transcript_hint:
+                    detail += f" (e.g. '{transcript_hint}')"
+                detail += " or supply 'prompt.text' in the request body."
+                raise HTTPException(status_code=400, detail=detail)
 
         try:
             generation = await tts_manager.generate(
